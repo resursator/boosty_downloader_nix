@@ -8,11 +8,11 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
 
-      version = "0.19.0";
+      version = "0.20.0";
 
       src = pkgs.fetchzip {
         url = "https://github.com/ath31st/boosty_downloader/archive/refs/tags/v${version}.tar.gz";
-        hash = "sha256-ci9Ps+wgNUO5omrTc3we0dljyIOP9u4c0emAs9U/pqw=";
+        hash = "sha256-p3Q36Pxi5OjSUtf7gtrkIwP5dFS+TzhK3nrQ3dhv8vM=";
         stripRoot = true;
       };
 

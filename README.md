@@ -26,15 +26,6 @@ nix build github:resursator/boosty_downloader_nix#gui --no-link
 nix build github:resursator/boosty_downloader_nix
 ```
 
-## Изменения относительно оригинального проекта
-
-При сборке применяются патчи к путям хранения данных:
-
-- **Конфигурация:** `~/.config/boosty-downloader/config.json` вместо расположения по умолчанию в исходном проекте.
-- **Загрузки:** `~/Downloads/boosty-downloader` — каталог загрузок по умолчанию.
-
-Путь к конфигурации также учитывает переменную окружения `XDG_CONFIG_HOME`.
-
 ## Установка в системный flake
 
 Добавьте репозиторий в `inputs` своего системного `flake.nix`:
