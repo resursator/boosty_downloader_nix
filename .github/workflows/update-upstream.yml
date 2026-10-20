@@ -1,0 +1,88 @@
+name: Update upstream release
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-upstream
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install updater requirements
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Find latest upstream release
+        id: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/ath31st/boosty_downloader/releases/latest \
+            | jq -r '.tag_name')"
+          version="${tag#v}"
+          if [[ -z "$version" || "$version" == "$tag" && ! "$tag" =~ ^[0-9] ]]; then
+            echo "Could not determine version from upstream tag: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if already up to date
+        id: check
+        env:
+          TARGET_VERSION: ${{ steps.upstream.outputs.version }}
+        shell: bash
+        run: |
+          current="$(sed -nE 's/^[[:space:]]*version = "([^"]+)";/\1/p' flake.nix | head -n1)"
+          echo "current=$current target=$TARGET_VERSION"
+          if [[ "$current" == "$TARGET_VERSION" ]]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update version and dependency hashes
+        if: steps.check.outputs.needed == 'true'
+        run: python3 scripts/update-upstream.py "${{ steps.upstream.outputs.version }}"
+
+      - name: Verify both packages
+        if: steps.check.outputs.needed == 'true'
+        run: |
+          nix build .#cli --no-link --print-build-logs
+          nix build .#gui --no-link --print-build-logs
+
+      - name: Create pull request
+        if: steps.check.outputs.needed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: bot/update-boosty-downloader-${{ steps.upstream.outputs.version }}
+          delete-branch: true
+          commit-message: "Update Boosty Downloader to ${{ steps.upstream.outputs.version }}"
+          title: "Update Boosty Downloader to ${{ steps.upstream.outputs.version }}"
+          body: |
+            Automated update to upstream release `${{ steps.upstream.outputs.tag }}`.
+
+            The updater refreshed the source archive hash and recalculated Cargo/Yarn dependency hashes. CLI and GUI builds are run before this PR is created.
+          add-paths: |
+            flake.nix
+            cli.nix
+            gui.nix
