@@ -53,18 +53,36 @@ def get_hash_from_failure(output: str) -> str:
     return matches[-1]
 
 
-def build_and_learn_hash(attr: str, path: Path, field_pattern: str, label: str) -> None:
-    result = run(["nix", "build", f".#{attr}", "--no-link", "--print-build-logs"], check=False)
+def build_and_learn_hash(
+    attr: str,
+    path: Path,
+    field_pattern: str,
+    label: str,
+) -> bool:
+    result = run(
+        ["nix", "build", f".#{attr}", "--no-link", "--print-build-logs"],
+        check=False,
+    )
+
     if result.returncode == 0:
-        print(f"{label}: existing hash is valid")
-        return
+        print(f"{label}: build succeeded")
+        return True
 
-    expected = get_hash_from_failure(result.stdout)
+    try:
+        expected = get_hash_from_failure(result.stdout)
+    except RuntimeError:
+        raise RuntimeError(
+            f"{label}: build failed for a reason other than a recognized hash mismatch"
+        ) from None
+
     print(f"{label}: updating hash to {expected}")
-    replace_one(path, field_pattern, rf'\g<1>{expected}\g<2>', label)
-
-    # Confirm the discovered hash actually fixes this derivation.
-    run(["nix", "build", f".#{attr}", "--no-link", "--print-build-logs"])
+    replace_one(
+        path,
+        field_pattern,
+        rf"\g<1>{expected}\g<2>",
+        label,
+    )
+    return False
 
 
 def main() -> None:
@@ -90,37 +108,52 @@ def main() -> None:
         "source archive hash",
     )
 
-    # Resolve each hash independently. The GUI's Rust dependency graph differs
-    # from the CLI's; keep these hashes separate even if they happen to match.
-    replace_one(CLI, r'(^\s*cargoHash = ")[^"]+(";\s*$)', rf'\g<1>{FAKE_HASH}\2', "CLI cargoHash")
-    build_and_learn_hash(
+    # Resolve CLI Cargo hash independently.
+    replace_one(
+        CLI,
+        r'(^\s*cargoHash = ")[^"]+(";\s*$)',
+        rf'\g<1>{FAKE_HASH}\2',
+        "CLI cargoHash",
+    )
+
+    while not build_and_learn_hash(
         "cli",
         CLI,
         r'(^\s*cargoHash = ")[^"]+(";\s*$)',
         "CLI cargoHash",
+    ):
+        pass
+
+    # Resolve GUI Cargo and Yarn hashes independently.
+    replace_one(
+        GUI,
+        r'(^\s*cargoHash = ")[^"]+(";\s*$)',
+        rf'\g<1>{FAKE_HASH}\2',
+        "GUI cargoHash",
     )
 
-    replace_one(GUI, r'(^\s*cargoHash = ")[^"]+(";\s*$)', rf'\g<1>{FAKE_HASH}\2', "GUI cargoHash")
-    build_and_learn_hash(
+    while not build_and_learn_hash(
         "gui",
         GUI,
         r'(^\s*cargoHash = ")[^"]+(";\s*$)',
         "GUI cargoHash",
-    )
+    ):
+        pass
 
-    # Now that the GUI Cargo vendor hash is valid, discover the Yarn hash.
     replace_one(
         GUI,
         r'(^\s*hash = ")[^"]+(";\s*\n\s*};)',
         rf'\g<1>{FAKE_HASH}\2',
         "Yarn dependency hash",
     )
-    build_and_learn_hash(
+
+    while not build_and_learn_hash(
         "gui",
         GUI,
         r'(^\s*hash = ")[^"]+(";\s*\n\s*};)',
         "Yarn dependency hash",
-    )
+    ):
+        pass
 
     # Final clean verification, including both outputs.
     run(["nix", "build", ".#cli", "--no-link", "--print-build-logs"])
