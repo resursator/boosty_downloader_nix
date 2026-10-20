@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update source/version/dependency hashes for the upstream Boosty Downloader release."""
+"""Update source/version/dependency hashes for an upstream Boosty Downloader release."""
 
 from __future__ import annotations
 
@@ -12,19 +12,35 @@ ROOT = Path(__file__).resolve().parents[1]
 FLAKE = ROOT / "flake.nix"
 CLI = ROOT / "cli.nix"
 GUI = ROOT / "gui.nix"
-FAKE_HASH = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+# Each marker identifies the field whose expected hash Nix reports after "got:".
+CLI_CARGO_MARKER = "sha256-cargoHashAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+GUI_CARGO_MARKER = "sha256-cargoHashAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+YARN_MARKER = "sha256-yarnOfflineCache/hash/AAAAAAAAAAAAAAAAAAAAA="
+
+CLI_CARGO_PATTERN = r'(^\s*cargoHash = ")[^"]+(";\s*$)'
+GUI_CARGO_PATTERN = r'(^\s*cargoHash = ")[^"]+(";\s*$)'
+YARN_PATTERN = r'(^\s*hash = ")[^"]+(";\s*\n\s*};)'
+
+HASH_MISMATCH_RE = re.compile(
+    r"specified:\s*(\S+)\s+got:\s*(sha256-[A-Za-z0-9+/=]+)"
+)
 
 
 def run(command: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
     print("+", " ".join(command), flush=True)
-    return subprocess.run(
+    result = subprocess.run(
         command,
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        check=check,
+        check=False,
     )
+    if check and result.returncode != 0:
+        print(result.stdout, file=sys.stderr, end="" if result.stdout.endswith("\n") else "\n")
+        raise subprocess.CalledProcessError(result.returncode, command, output=result.stdout)
+    return result
 
 
 def replace_one(path: Path, pattern: str, replacement: str, description: str) -> None:
@@ -44,45 +60,45 @@ def set_version(path: Path, version: str) -> None:
     )
 
 
-def get_hash_from_failure(output: str) -> str:
-    # Nix's fixed-output derivation mismatch normally includes: got: sha256-...
-    matches = re.findall(r"\bgot:\s*(sha256-[A-Za-z0-9+/=]+)", output)
-    if not matches:
-        print(output, file=sys.stderr)
-        raise RuntimeError("Could not extract the expected hash from Nix build output")
-    return matches[-1]
+def set_hash(path: Path, pattern: str, value: str, label: str) -> None:
+    replace_one(path, pattern, rf'\g<1>{value}\g<2>', label)
 
 
-def build_and_learn_hash(
+def learn_hashes_until_success(
     attr: str,
-    path: Path,
-    field_pattern: str,
-    label: str,
-) -> bool:
-    result = run(
-        ["nix", "build", f".#{attr}", "--no-link", "--print-build-logs"],
-        check=False,
-    )
+    hash_fields: dict[str, tuple[Path, str, str]],
+) -> None:
+    """Build repeatedly, updating only the field identified by Nix's `specified:` marker."""
+    # Each field is seeded with its own marker before this function is called.
+    # The GUI can report Yarn first and Cargo on the next attempt; no order is assumed.
+    max_attempts = len(hash_fields) + 1
+    for _ in range(max_attempts):
+        result = run(
+            ["nix", "build", f".#" + attr, "--no-link", "--print-build-logs"],
+            check=False,
+        )
+        if result.returncode == 0:
+            print(f"{attr}: build succeeded")
+            return
 
-    if result.returncode == 0:
-        print(f"{label}: build succeeded")
-        return True
+        mismatches = HASH_MISMATCH_RE.findall(result.stdout)
+        recognized = [(specified, got) for specified, got in mismatches if specified in hash_fields]
+        if len(recognized) != 1:
+            print(result.stdout, file=sys.stderr, end="" if result.stdout.endswith("\n") else "\n")
+            if not recognized:
+                raise RuntimeError(
+                    f"{attr}: build failed without a recognized fake-hash marker; refusing to guess"
+                )
+            raise RuntimeError(
+                f"{attr}: expected one recognized hash mismatch, found {len(recognized)}; refusing to guess"
+            )
 
-    try:
-        expected = get_hash_from_failure(result.stdout)
-    except RuntimeError:
-        raise RuntimeError(
-            f"{label}: build failed for a reason other than a recognized hash mismatch"
-        ) from None
+        marker, expected = recognized[0]
+        path, pattern, label = hash_fields[marker]
+        print(f"{label}: updating hash to {expected}")
+        set_hash(path, pattern, expected, label)
 
-    print(f"{label}: updating hash to {expected}")
-    replace_one(
-        path,
-        field_pattern,
-        rf"\g<1>{expected}\g<2>",
-        label,
-    )
-    return False
+    raise RuntimeError(f"{attr}: build did not succeed after resolving all known hashes")
 
 
 def main() -> None:
@@ -108,54 +124,24 @@ def main() -> None:
         "source archive hash",
     )
 
-    # Resolve CLI Cargo hash independently.
-    replace_one(
-        CLI,
-        r'(^\s*cargoHash = ")[^"]+(";\s*$)',
-        rf'\g<1>{FAKE_HASH}\2',
-        "CLI cargoHash",
-    )
+    # Seed all dependency hashes with identifiable markers. The CLI and GUI Cargo
+    # hashes are handled in separate builds because their dependency graphs differ.
+    set_hash(CLI, CLI_CARGO_PATTERN, CLI_CARGO_MARKER, "CLI cargoHash marker")
+    set_hash(GUI, GUI_CARGO_PATTERN, GUI_CARGO_MARKER, "GUI cargoHash marker")
+    set_hash(GUI, YARN_PATTERN, YARN_MARKER, "Yarn dependency hash marker")
 
-    while not build_and_learn_hash(
-        "cli",
-        CLI,
-        r'(^\s*cargoHash = ")[^"]+(";\s*$)',
-        "CLI cargoHash",
-    ):
-        pass
+    cli_fields = {
+        CLI_CARGO_MARKER: (CLI, CLI_CARGO_PATTERN, "CLI cargoHash"),
+    }
+    gui_fields = {
+        GUI_CARGO_MARKER: (GUI, GUI_CARGO_PATTERN, "GUI cargoHash"),
+        YARN_MARKER: (GUI, YARN_PATTERN, "Yarn dependency hash"),
+    }
 
-    # Resolve GUI Cargo and Yarn hashes independently.
-    replace_one(
-        GUI,
-        r'(^\s*cargoHash = ")[^"]+(";\s*$)',
-        rf'\g<1>{FAKE_HASH}\2',
-        "GUI cargoHash",
-    )
+    learn_hashes_until_success("cli", cli_fields)
+    learn_hashes_until_success("gui", gui_fields)
 
-    while not build_and_learn_hash(
-        "gui",
-        GUI,
-        r'(^\s*cargoHash = ")[^"]+(";\s*$)',
-        "GUI cargoHash",
-    ):
-        pass
-
-    replace_one(
-        GUI,
-        r'(^\s*hash = ")[^"]+(";\s*\n\s*};)',
-        rf'\g<1>{FAKE_HASH}\2',
-        "Yarn dependency hash",
-    )
-
-    while not build_and_learn_hash(
-        "gui",
-        GUI,
-        r'(^\s*hash = ")[^"]+(";\s*\n\s*};)',
-        "Yarn dependency hash",
-    ):
-        pass
-
-    # Final clean verification, including both outputs.
+    # Final verification using the resolved hashes.
     run(["nix", "build", ".#cli", "--no-link", "--print-build-logs"])
     run(["nix", "build", ".#gui", "--no-link", "--print-build-logs"])
     print(f"Successfully updated Boosty Downloader to {version}")
