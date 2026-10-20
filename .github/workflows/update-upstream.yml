@@ -2,8 +2,13 @@ name: Update upstream release
 
 on:
   schedule:
-    - cron: "23 */6 * * *"
+    - cron: "0 */6 * * *"
   workflow_dispatch:
+    inputs:
+      local_test:
+        description: "Run without creating a pull request"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -71,7 +76,7 @@ jobs:
           nix build .#gui --no-link --print-build-logs
 
       - name: Create pull request
-        if: steps.check.outputs.needed == 'true'
+        if: ${{ !inputs.local_test && steps.check.outputs.needed == 'true' }}
         uses: peter-evans/create-pull-request@v7
         with:
           branch: bot/update-boosty-downloader-${{ steps.upstream.outputs.version }}
