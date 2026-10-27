@@ -18,9 +18,10 @@ CLI_CARGO_MARKER = "sha256-cargoHashAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 GUI_CARGO_MARKER = "sha256-cargoHashAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 YARN_MARKER = "sha256-yarnOfflineCache/hash/AAAAAAAAAAAAAAAAAAAAA="
 
-CLI_CARGO_PATTERN = r'(^\s*cargoHash = ")[^"]+(";\s*$)'
-GUI_CARGO_PATTERN = r'(^\s*cargoHash = ")[^"]+(";\s*$)'
-YARN_PATTERN = r'(^\s*hash = ")[^"]+(";\s*\n\s*};)'
+SOURCE_PATTERN = r'(^[ \t]*hash = )(?:pkgs\.lib\.fakeHash|lib\.fakeHash|"[^"]+")(;[ \t]*\n[ \t]*stripRoot = true;)'
+CLI_CARGO_PATTERN = r'(^[ \t]*cargoHash = )(?:lib\.fakeHash|"[^"]+")(;[ \t]*$)'
+GUI_CARGO_PATTERN = r'(^[ \t]*cargoHash = )(?:lib\.fakeHash|"[^"]+")(;[ \t]*$)'
+YARN_PATTERN = r'(^[ \t]*hash = )(?:lib\.fakeHash|"[^"]+")(;[ \t]*\n[ \t]*};)'
 
 HASH_MISMATCH_RE = re.compile(
     r"specified:\s*(\S+)\s+got:\s*(sha256-[A-Za-z0-9+/=]+)"
@@ -61,7 +62,7 @@ def set_version(path: Path, version: str) -> None:
 
 
 def set_hash(path: Path, pattern: str, value: str, label: str) -> None:
-    replace_one(path, pattern, rf'\g<1>{value}\g<2>', label)
+    replace_one(path, pattern, rf'\g<1>"{value}"\g<2>', label)
 
 
 def learn_hashes_until_success(
@@ -109,8 +110,6 @@ def main() -> None:
         raise SystemExit(f"Invalid release version: {version}")
 
     set_version(FLAKE, version)
-    set_version(CLI, version)
-    set_version(GUI, version)
 
     source_url = f"https://github.com/ath31st/boosty_downloader/archive/refs/tags/v{version}.tar.gz"
     prefetched = run(["nix-prefetch-url", "--unpack", source_url]).stdout.strip().splitlines()[-1]
@@ -119,8 +118,8 @@ def main() -> None:
     ]).stdout.strip()
     replace_one(
         FLAKE,
-        r'(^\s*hash = ")[^"]+(";\s*\n\s*stripRoot = true;)',
-        rf'\g<1>{source_hash}\2',
+        SOURCE_PATTERN,
+        rf'\g<1>"{source_hash}"\2',
         "source archive hash",
     )
 
