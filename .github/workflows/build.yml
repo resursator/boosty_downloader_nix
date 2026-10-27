@@ -2,7 +2,17 @@ name: Build packages
 
 on:
   push:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'cli.nix'
+      - 'gui.nix'
   pull_request:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'cli.nix'
+      - 'gui.nix'
   workflow_dispatch:
 
 permissions:
