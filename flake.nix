@@ -12,7 +12,7 @@
 
       src = pkgs.fetchzip {
         url = "https://github.com/ath31st/boosty_downloader/archive/refs/tags/v${version}.tar.gz";
-        hash = pkgs.lib.fakeHash;
+        hash = "sha256-p3Q36Pxi5OjSUtf7gtrkIwP5dFS+TzhK3nrQ3dhv8vM=";
         stripRoot = true;
       };
 
