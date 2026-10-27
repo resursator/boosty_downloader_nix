@@ -3,17 +3,18 @@
   rustPlatform,
   pkg-config,
   openssl,
-  src
+  src,
+  version
 }:
 
 rustPlatform.buildRustPackage {
   pname = "boosty-downloader";
-  version = "0.20.0";
 
   inherit src;
+  inherit version;
 
   # Заменить на hash, полученный при первой сборке.
-  cargoHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  cargoHash = lib.fakeHash;
 
   cargoBuildFlags = [
     "-p" "boosty_downloader_core"

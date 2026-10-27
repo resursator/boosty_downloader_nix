@@ -18,24 +18,25 @@
   pango,
   gdk-pixbuf,
   librsvg,
-  src
+  src,
+  version
 }:
 
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "boosty-downloader-gui";
-  version = "0.20.0";
 
   inherit src;
+  inherit version;
 
   # cargoRoot = "src-tauri";
   # buildAndTestSubdir = "src-tauri";
 
   # Cargo.lock находится в корне workspace.
-  cargoHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  cargoHash = lib.fakeHash;
 
   yarnOfflineCache = fetchYarnDeps {
     yarnLock = "${src}/frontend/yarn.lock";
-    hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    hash = lib.fakeHash;
   };
 
   dontYarnInstallDeps = true;
