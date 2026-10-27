@@ -14,7 +14,7 @@ rustPlatform.buildRustPackage {
   inherit version;
 
   # Заменить на hash, полученный при первой сборке.
-  cargoHash = "sha256-73FIiYFLMqKsBpcV9RoWrrM6lLtqh2ScwXiT7tckWPY=";
+  cargoHash = "sha256-iZpoSxoy4wUW0PF9U/DX1uY3wdzWMLpPXtrBT7joQMU=";
 
   cargoBuildFlags = [
     "-p" "boosty_downloader_core"

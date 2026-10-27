@@ -32,7 +32,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   # buildAndTestSubdir = "src-tauri";
 
   # Cargo.lock находится в корне workspace.
-  cargoHash = "sha256-73FIiYFLMqKsBpcV9RoWrrM6lLtqh2ScwXiT7tckWPY=";
+  cargoHash = "sha256-iZpoSxoy4wUW0PF9U/DX1uY3wdzWMLpPXtrBT7joQMU=";
 
   yarnOfflineCache = fetchYarnDeps {
     yarnLock = "${src}/frontend/yarn.lock";
